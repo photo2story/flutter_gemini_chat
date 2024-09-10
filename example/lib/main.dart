@@ -100,3 +100,5 @@ PS D:\flutter> git clone https://github.com/flutter/flutter.git -b stable
 git config --global --add safe.directory '*'  <<<<--- Unable to find git in your PATH
 flutter pub upgrade
 start ms-settings:developers
+
+"""
