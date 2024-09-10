@@ -3,7 +3,6 @@ import 'dart:typed_data';
 
 import 'package:dio/dio.dart';
 import 'package:flutter_gemini/flutter_gemini.dart';
-import 'package:flutter_gemini/src/models/candidates/candidates.dart';
 import 'package:mime/mime.dart';
 import '../config/constants.dart';
 import '../repository/gemini_interface.dart';
