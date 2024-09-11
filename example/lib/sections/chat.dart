@@ -1,9 +1,8 @@
-// chat.dart
-
-
 import 'dart:io';
 import 'package:flutter/material.dart';
-import 'package:pdf_text/pdf_text.dart';
+import 'package:http/http.dart' as http;
+import 'package:path_provider/path_provider.dart';  // To store the file locally
+import 'package:syncfusion_flutter_pdf/pdf.dart';   // To extract text from PDF
 
 class SectionChat extends StatefulWidget {
   const SectionChat({super.key});
@@ -13,52 +12,48 @@ class SectionChat extends StatefulWidget {
 }
 
 class _SectionChatState extends State<SectionChat> {
-  final TextEditingController controller = TextEditingController();
+  final controller = TextEditingController();
   bool _loading = false;
   List<String> chats = [];
 
-  // Function to extract text from the first page of a PDF
-  Future<String> fetchFirstPageText() async {
+  final String githubPdfUrl = "https://raw.githubusercontent.com/photo2story/flutter_gemini_chat/master/example/data/20231226_Guide_1000.pdf";
+
+  // Function to download and read PDF using syncfusion_flutter_pdf
+  Future<String> fetchPdfFromGithub(String url) async {
     try {
-      final filePath = 'C:/Users/user/OneDrive/Work/Source/Repos/flutter_gemini_chat/example/data/20231226_Guide_1000.pdf';
-      final file = File(filePath);
+      final response = await http.get(Uri.parse(url));
 
-      if (await file.exists()) {
-        PDFDoc doc = await PDFDoc.fromFile(file);
+      if (response.statusCode == 200) {
+        final directory = await getTemporaryDirectory();
+        final filePath = '${directory.path}/temp_guide.pdf';
+        final file = File(filePath);
+        await file.writeAsBytes(response.bodyBytes);
 
-        // Get text from the first page
-        String firstPageText = await doc.pageAt(1).text;
+        // Load the PDF document
+        final List<int> bytes = file.readAsBytesSync();
+        final PdfDocument document = PdfDocument(inputBytes: bytes);
 
-        return firstPageText;
+        // Extract text from the first page
+        String text = PdfTextExtractor(document).extractText(startPageIndex: 0, endPageIndex: 0);
+        document.dispose();
+
+        return text;
       } else {
-        return 'PDF 파일을 찾을 수 없습니다.';
+        throw Exception('Failed to load PDF. Status Code: ${response.statusCode}');
       }
     } catch (e) {
-      print("PDF 파일을 읽는 중 오류가 발생했습니다: $e");
-      return 'PDF 파일을 읽는 중 오류가 발생했습니다.';
+      print("Error fetching PDF: $e");
+      return 'Error fetching PDF: $e';
     }
   }
 
-  // Function to send the extracted text to the chat
-  void handlePdfToChat() async {
+  void handlePdfChat(String pdfUrl) async {
     setState(() => _loading = true);
+    String extractedText = await fetchPdfFromGithub(pdfUrl);
 
-    // Fetch the first page text from the PDF
-    String pdfText = await fetchFirstPageText();
-
-    // Add PDF content as user input
     setState(() {
-      chats.add("PDF 첫 페이지: $pdfText");
+      chats.add("PDF 첫 페이지 내용: $extractedText");
       _loading = false;
-    });
-  }
-
-  // Regular message sending function
-  void onSend() {
-    final userMessage = controller.text;
-    setState(() {
-      chats.add(userMessage);
-      controller.clear();
     });
   }
 
@@ -67,13 +62,6 @@ class _SectionChatState extends State<SectionChat> {
     return Scaffold(
       appBar: AppBar(
         title: const Text('Chat with PDF'),
-        actions: [
-          // Button to fetch and send PDF first page text
-          IconButton(
-            icon: const Icon(Icons.picture_as_pdf),
-            onPressed: handlePdfToChat,  // Send PDF first page text to chat
-          ),
-        ],
       ),
       body: Column(
         children: [
@@ -88,7 +76,6 @@ class _SectionChatState extends State<SectionChat> {
             ),
           ),
           if (_loading) const CircularProgressIndicator(),
-          // Text Input and Send Button
           Row(
             children: [
               Expanded(
@@ -100,8 +87,14 @@ class _SectionChatState extends State<SectionChat> {
               IconButton(
                 icon: const Icon(Icons.send),
                 onPressed: () {
-                  if (controller.text.isNotEmpty) {
-                    onSend();  // Send user text to chat
+                  if (controller.text.startsWith("/pdf")) {
+                    controller.clear();
+                    handlePdfChat(githubPdfUrl);  // Fetch PDF from GitHub
+                  } else if (controller.text.isNotEmpty) {
+                    setState(() {
+                      chats.add(controller.text);
+                      controller.clear();
+                    });
                   }
                 },
               ),
