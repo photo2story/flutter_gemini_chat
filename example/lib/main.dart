@@ -1,3 +1,4 @@
+// main.dart
 import 'package:example/sections/chat.dart';
 import 'package:example/sections/chat_stream.dart';
 import 'package:example/sections/embed_batch_contents.dart';
