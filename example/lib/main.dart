@@ -93,9 +93,9 @@ class _MyHomePageState extends State<MyHomePage> {
   }
 }
 
-"""
+/*
 java --version
 apt install -y google-chrome-stable
 flutter config --enable-web
 nix-env -i google-chrome
-
+*/
