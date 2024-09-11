@@ -30,6 +30,8 @@ environment:
 dependencies:
   flutter:
     sdk: flutter
+    pdf_text: ^1.0.0  # PDF 텍스트를 추출하는 라이브러리
+    path_provider: ^2.0.9  # 로컬 파일 경로를 얻기 위한 라이브러리
 
 
   # The following adds the Cupertino Icons font to your application.
