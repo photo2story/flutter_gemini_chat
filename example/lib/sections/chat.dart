@@ -1,16 +1,18 @@
 import 'dart:io';
 import 'package:flutter/material.dart';
-import 'package:flutter_gemini/flutter_gemini.dart';
-import 'package:flutter_markdown/flutter_markdown.dart';
 import 'package:http/http.dart' as http;
-import 'package:pdf/pdf.dart' as pdfLib;
-import 'package:pdf/widgets.dart' as pw;
-import 'package:syncfusion_flutter_pdf/pdf.dart';
 import 'package:path_provider/path_provider.dart';
-import 'package:example/widgets/chat_input_box.dart';
+import 'package:syncfusion_flutter_pdf/pdf.dart';
+import 'package:flutter_gemini/flutter_gemini.dart';
+
+class ChatMessage {
+  final String sender;
+  final String message;
+  ChatMessage({required this.sender, required this.message});
+}
 
 class SectionChat extends StatefulWidget {
-  const SectionChat({super.key});
+  const SectionChat({Key? key}) : super(key: key);
 
   @override
   State<SectionChat> createState() => _SectionChatState();
@@ -18,124 +20,135 @@ class SectionChat extends StatefulWidget {
 
 class _SectionChatState extends State<SectionChat> {
   final controller = TextEditingController();
-  final gemini = Gemini.instance;
   bool _loading = false;
-  bool get loading => _loading;
-  set loading(bool set) => setState(() => _loading = set);
+  List<ChatMessage> chats = [];
+  final gemini = Gemini.instance;
+  String pdfContent = '';
 
-  final List<Content> chats = [];
-  String pdfText = '';
+  final String githubPdfUrl =
+      "https://raw.githubusercontent.com/photo2story/flutter_gemini_chat/master/example/data/20231226_Guide_1000.pdf";
 
   @override
   void initState() {
     super.initState();
-    loadPdfText(); // PDF 텍스트 로딩
+    _initializePdfContent();
   }
 
-  Future<void> loadPdfText() async {
+  Future<void> _initializePdfContent() async {
+    pdfContent = await fetchPdfFromGithub(githubPdfUrl);
+  }
+
+  Future<String> fetchPdfFromGithub(String url, {int? startPage, int? endPage}) async {
     try {
-      // PDF 다운로드
-      final response = await http.get(Uri.parse(
-          'https://raw.githubusercontent.com/photo2story/flutter_gemini_chat/master/example/data/20231226_Guide_1000.pdf'));
+      final response = await http.get(Uri.parse(url));
 
       if (response.statusCode == 200) {
-        final tempDir = await getTemporaryDirectory();
-        final filePath = '${tempDir.path}/guide.pdf';
+        final directory = await getTemporaryDirectory();
+        final filePath = '${directory.path}/temp_guide.pdf';
         final file = File(filePath);
         await file.writeAsBytes(response.bodyBytes);
 
-        // Syncfusion을 사용해 PDF 텍스트 추출
-        final PdfDocument document = PdfDocument(inputBytes: file.readAsBytesSync());
-        pdfText = PdfTextExtractor(document).extractText();
-        print('Extracted PDF text: $pdfText');
+        final List<int> bytes = file.readAsBytesSync();
+        final PdfDocument document = PdfDocument(inputBytes: bytes);
 
-        setState(() {
-          // 상태 업데이트하여 PDF 텍스트 로드 완료
-        });
+        int start = startPage ?? 0;
+        int end = endPage ?? document.pages.count - 1;
+        String text = PdfTextExtractor(document).extractText(startPageIndex: start, endPageIndex: end);
+        document.dispose();
 
-        document.dispose(); // 메모리 해제
+        return text;
       } else {
-        throw Exception('Failed to load PDF');
+        throw Exception('Failed to load PDF. Status Code: ${response.statusCode}');
       }
     } catch (e) {
-      print('Error loading PDF: $e');
+      print("Error fetching PDF: $e");
+      return 'Error fetching PDF: $e';
     }
+  }
+
+  Future<void> handlePdfChat(String input) async {
+    setState(() => _loading = true);
+
+    if (input.startsWith('/pdf')) {
+      List<String> inputParts = input.split(" ");
+      if (inputParts.length > 1) {
+        int? pageNumber = int.tryParse(inputParts[1]);
+        if (pageNumber != null) {
+          String extractedText = await fetchPdfFromGithub(githubPdfUrl,
+              startPage: pageNumber - 1, endPage: pageNumber - 1);
+          setState(() {
+            chats.add(ChatMessage(sender: 'system', message: "PDF 페이지 $pageNumber 내용: $extractedText"));
+          });
+        }
+      } else {
+        setState(() {
+          chats.add(ChatMessage(sender: 'system', message: "전체 PDF 내용: $pdfContent"));
+        });
+      }
+    } else if (input.startsWith('/summary')) {
+      String prompt = "다음 PDF 내용을 간략하게 요약해주세요: $pdfContent";
+      final response = await gemini.text(prompt);
+      setState(() {
+        chats.add(ChatMessage(sender: 'system', message: "PDF 요약: ${response?.content?.toString() ?? "요약을 생성할 수 없습니다."}"));
+      });
+    } else {
+      chats.add(ChatMessage(sender: 'user', message: input));
+      String context = "다음은 PDF의 내용입니다: $pdfContent\n\n사용자의 질문: $input";
+      final response = await gemini.text(context);
+      setState(() {
+        chats.add(ChatMessage(sender: 'system', message: response?.content?.toString() ?? "죄송합니다. 응답을 생성할 수 없습니다."));
+      });
+    }
+
+    setState(() => _loading = false);
   }
 
   @override
   Widget build(BuildContext context) {
-    return Column(
-      children: [
-        Expanded(
-            child: chats.isNotEmpty
-                ? Align(
-                    alignment: Alignment.bottomCenter,
-                    child: SingleChildScrollView(
-                      reverse: true,
-                      child: ListView.builder(
-                        itemBuilder: chatItem,
-                        shrinkWrap: true,
-                        physics: const NeverScrollableScrollPhysics(),
-                        itemCount: chats.length,
-                        reverse: false,
-                      ),
+    return Scaffold(
+      appBar: AppBar(
+        title: const Text('Chat with PDF'),
+      ),
+      body: Column(
+        children: [
+          Expanded(
+            child: ListView.builder(
+              itemCount: chats.length,
+              itemBuilder: (context, index) {
+                ChatMessage chat = chats[index];
+                return ListTile(
+                  title: Text(
+                    chat.message,
+                    style: TextStyle(
+                      color: chat.sender == 'user' ? Colors.blue : Colors.green,
                     ),
-                  )
-                : const Center(child: Text('Search something!'))),
-        if (loading) const CircularProgressIndicator(),
-        ChatInputBox(
-          controller: controller,
-          onSend: () {
-            if (controller.text.isNotEmpty) {
-              final searchedText = controller.text;
-              chats.add(Content(
-                  role: 'user', parts: [Parts(text: searchedText)]));
-              controller.clear();
-              loading = true;
-
-              gemini.chat(chats).then((value) {
-                final output = searchInPdf(searchedText);
-                chats.add(Content(
-                    role: 'model', parts: [Parts(text: output)]));
-                loading = false;
-              });
-            }
-          },
-        ),
-      ],
-    );
-  }
-
-  String searchInPdf(String query) {
-    // PDF 텍스트에서 사용자가 입력한 내용을 검색
-    if (pdfText.contains(query)) {
-      return 'Found in PDF: $query';
-    } else {
-      return 'Not found in PDF.';
-    }
-  }
-
-  Widget chatItem(BuildContext context, int index) {
-    final Content content = chats[index];
-
-    return Card(
-      elevation: 0,
-      color: content.role == 'model'
-          ? Colors.blue.shade800
-          : Colors.transparent,
-      child: Padding(
-        padding: const EdgeInsets.all(8.0),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Text(content.role ?? 'role'),
-            Markdown(
-                shrinkWrap: true,
-                physics: const NeverScrollableScrollPhysics(),
-                data: content.parts?.lastOrNull?.text ??
-                    'cannot generate data!'),
-          ],
-        ),
+                  ),
+                );
+              },
+            ),
+          ),
+          if (_loading) const CircularProgressIndicator(),
+          Row(
+            children: [
+              Expanded(
+                child: TextField(
+                  controller: controller,
+                  decoration: const InputDecoration(hintText: 'Type a message...'),
+                ),
+              ),
+              IconButton(
+                icon: const Icon(Icons.send),
+                onPressed: () {
+                  if (controller.text.isNotEmpty) {
+                    String input = controller.text;
+                    controller.clear();
+                    handlePdfChat(input);
+                  }
+                },
+              ),
+            ],
+          ),
+        ],
       ),
     );
   }

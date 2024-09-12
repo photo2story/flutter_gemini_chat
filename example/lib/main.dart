@@ -99,4 +99,13 @@ java --version
 apt install -y google-chrome-stable
 flutter config --enable-web
 nix-env -i google-chrome
+
+flutter devices
+flutter pub get
+
+flutter build web
+flutter build web --release
+flutter run -d web-server --web-hostname
+flutter run -d web-server --web-port
+
 */
